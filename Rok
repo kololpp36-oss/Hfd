@@ -1,0 +1,544 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local isLocked = false      -- สถานะเปิด/ปิด ล็อคหัว
+local isUIPinned = false    -- สถานะเปิด/ปิด ล็อคตำแหน่ง UI
+local isWallhackOn = false  -- สถานะเปิด/ปิด มองทะลุ
+local isMenuOpen = false    -- สถานะเปิด/ปิด หน้าต่างเมนูหลัก
+local targetHead = nil
+
+---------------------------------------------------------
+-- 1. สร้าง ScreenGui
+---------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombatUIGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- ปุ่มสี่เหลี่ยมเล็กๆ เปิด-ปิดเมนู (มุมซ้ายบน)
+local launcherBtn = Instance.new("TextButton")
+launcherBtn.Name = "LauncherButton"
+launcherBtn.Size = UDim2.new(0, 38, 0, 38)
+launcherBtn.Position = UDim2.new(0, 15, 0, 15)
+launcherBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+launcherBtn.Text = "🎯"
+launcherBtn.TextSize = 18
+launcherBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+launcherBtn.AutoButtonColor = true
+launcherBtn.ZIndex = 10
+launcherBtn.Parent = screenGui
+
+local launcherCorner = Instance.new("UICorner")
+launcherCorner.CornerRadius = UDim.new(0, 8)
+launcherCorner.Parent = launcherBtn
+
+-- ปุ่มรีเซ็ตตัวละคร (มุมขวาบน)
+local resetBtn = Instance.new("TextButton")
+resetBtn.Name = "ResetButton"
+resetBtn.Size = UDim2.new(0, 38, 0, 38)
+resetBtn.Position = UDim2.new(1, -53, 0, 15) -- 📍 มุมขวาบน
+resetBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+resetBtn.Text = "💀"
+resetBtn.TextSize = 18
+resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+resetBtn.AutoButtonColor = true
+resetBtn.ZIndex = 10
+resetBtn.Parent = screenGui
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 8)
+resetCorner.Parent = resetBtn
+
+-- ปุ่มย้ายเซิร์ฟเวอร์ (Server Hop) อยู่ใต้ปุ่มรีเซ็ต
+local hopBtn = Instance.new("TextButton")
+hopBtn.Name = "HopButton"
+hopBtn.Size = UDim2.new(0, 38, 0, 38)
+hopBtn.Position = UDim2.new(1, -53, 0, 60) -- 📍 ใต้ปุ่มรีเซ็ต
+hopBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 180)
+hopBtn.Text = "🌐"
+hopBtn.TextSize = 18
+hopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hopBtn.AutoButtonColor = true
+hopBtn.ZIndex = 10
+hopBtn.Parent = screenGui
+
+local hopCorner = Instance.new("UICorner")
+hopCorner.CornerRadius = UDim.new(0, 8)
+hopCorner.Parent = hopBtn
+
+-- ปุ่มรีจอยเข้าเซิร์ฟเดิม (Rejoin) อยู่ใต้ปุ่มย้ายเซิร์ฟ
+local rejoinBtn = Instance.new("TextButton")
+rejoinBtn.Name = "RejoinButton"
+rejoinBtn.Size = UDim2.new(0, 38, 0, 38)
+rejoinBtn.Position = UDim2.new(1, -53, 0, 105) -- 📍 ใต้ปุ่มย้ายเซิร์ฟเวอร์
+rejoinBtn.BackgroundColor3 = Color3.fromRGB(180, 120, 20)
+rejoinBtn.Text = "🔄"
+rejoinBtn.TextSize = 18
+rejoinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+rejoinBtn.AutoButtonColor = true
+rejoinBtn.ZIndex = 10
+rejoinBtn.Parent = screenGui
+
+local rejoinCorner = Instance.new("UICorner")
+rejoinCorner.CornerRadius = UDim.new(0, 8)
+rejoinCorner.Parent = rejoinBtn
+
+---------------------------------------------------------
+-- 2. สร้างกรอบ UI หลัก (Combat UI Menu)
+---------------------------------------------------------
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 180, 0, 120)
+mainFrame.Position = UDim2.new(0, 15, 0, 60)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Visible = false
+mainFrame.ZIndex = 1
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+-- เอฟเฟกต์ขอบสีสายรุ้ง (Rainbow Border)
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Thickness = 2.5
+mainStroke.Transparency = 1
+mainStroke.Parent = mainFrame
+
+local rainbowGradient = Instance.new("UIGradient")
+rainbowGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+    ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 127, 0)),
+    ColorSequenceKeypoint.new(0.33, Color3.fromRGB(255, 255, 0)),
+    ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 0)),
+    ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 127, 255)),
+    ColorSequenceKeypoint.new(0.83, Color3.fromRGB(127, 0, 255)),
+    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0))
+})
+rainbowGradient.Parent = mainStroke
+
+-- หัวข้อ UI
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -35, 0, 22)
+title.Position = UDim2.new(0, 8, 0, 4)
+title.BackgroundTransparency = 1
+title.Text = "🎯 Combat UI"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 2
+title.Parent = mainFrame
+
+-- ข้อความบอกสถานะการล็อค UI
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -16, 0, 16)
+statusLabel.Position = UDim2.new(0, 8, 0, 24)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "UI: 🔓 Movable"
+statusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 10
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.ZIndex = 2
+statusLabel.Parent = mainFrame
+
+---------------------------------------------------------
+-- ปุ่มสวิตช์ Lock-on หัว
+---------------------------------------------------------
+local lockLabel = Instance.new("TextLabel")
+lockLabel.Size = UDim2.new(0, 90, 0, 24)
+lockLabel.Position = UDim2.new(0, 8, 0, 48)
+lockLabel.BackgroundTransparency = 1
+lockLabel.Text = "Lock Head"
+lockLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+lockLabel.Font = Enum.Font.GothamMedium
+lockLabel.TextSize = 11
+lockLabel.TextXAlignment = Enum.TextXAlignment.Left
+lockLabel.ZIndex = 2
+lockLabel.Parent = mainFrame
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 40, 0, 20)
+toggleBtn.Position = UDim2.new(1, -48, 0, 50)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+toggleBtn.Text = ""
+toggleBtn.AutoButtonColor = false
+toggleBtn.ZIndex = 3
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(1, 0)
+btnCorner.Parent = toggleBtn
+toggleBtn.Parent = mainFrame
+
+local toggleCircle = Instance.new("Frame")
+toggleCircle.Size = UDim2.new(0, 16, 0, 16)
+toggleCircle.Position = UDim2.new(0, 2, 0.5, -8)
+toggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+toggleCircle.ZIndex = 4
+local circleCorner = Instance.new("UICorner")
+circleCorner.CornerRadius = UDim.new(1, 0)
+circleCorner.Parent = toggleCircle
+toggleCircle.Parent = toggleBtn
+
+---------------------------------------------------------
+-- ปุ่มสวิตช์มองทะลุ / ESP (Wallhack)
+---------------------------------------------------------
+local espLabel = Instance.new("TextLabel")
+espLabel.Size = UDim2.new(0, 90, 0, 24)
+espLabel.Position = UDim2.new(0, 8, 0, 78)
+espLabel.BackgroundTransparency = 1
+espLabel.Text = "Wallhack"
+espLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+espLabel.Font = Enum.Font.GothamMedium
+espLabel.TextSize = 11
+espLabel.TextXAlignment = Enum.TextXAlignment.Left
+espLabel.ZIndex = 2
+espLabel.Parent = mainFrame
+
+local espToggleBtn = Instance.new("TextButton")
+espToggleBtn.Size = UDim2.new(0, 40, 0, 20)
+espToggleBtn.Position = UDim2.new(1, -48, 0, 80)
+espToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+espToggleBtn.Text = ""
+espToggleBtn.AutoButtonColor = false
+espToggleBtn.ZIndex = 3
+local espBtnCorner = Instance.new("UICorner")
+espBtnCorner.CornerRadius = UDim.new(1, 0)
+espBtnCorner.Parent = espToggleBtn
+espToggleBtn.Parent = mainFrame
+
+local espToggleCircle = Instance.new("Frame")
+espToggleCircle.Size = UDim2.new(0, 16, 0, 16)
+espToggleCircle.Position = UDim2.new(0, 2, 0.5, -8)
+espToggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+espToggleCircle.ZIndex = 4
+local espCircleCorner = Instance.new("UICorner")
+espCircleCorner.CornerRadius = UDim.new(1, 0)
+espCircleCorner.Parent = espToggleCircle
+espToggleCircle.Parent = espToggleBtn
+
+-- ปุ่มหมุดล็อคตำแหน่ง UI (Pin Button)
+local pinBtn = Instance.new("TextButton")
+pinBtn.Size = UDim2.new(0, 24, 0, 24)
+pinBtn.Position = UDim2.new(1, -28, 0, 4)
+pinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+pinBtn.Text = "🔓"
+pinBtn.TextSize = 12
+pinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+pinBtn.ZIndex = 5
+local pinCorner = Instance.new("UICorner")
+pinCorner.CornerRadius = UDim.new(0, 6)
+pinCorner.Parent = pinBtn
+pinBtn.Parent = mainFrame
+
+---------------------------------------------------------
+-- 3. ระบบแจ้งเตือนผู้เล่นเข้าเซิร์ฟเวอร์ + เสียง (Join Notification + Sound)
+---------------------------------------------------------
+local notifFrame = Instance.new("Frame")
+notifFrame.Name = "JoinNotification"
+notifFrame.Size = UDim2.new(0, 240, 0, 45)
+notifFrame.Position = UDim2.new(0.5, -120, 0, -60)
+notifFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+notifFrame.BorderSizePixel = 0
+notifFrame.ZIndex = 20
+notifFrame.Parent = screenGui
+
+local notifCorner = Instance.new("UICorner")
+notifCorner.CornerRadius = UDim.new(0, 8)
+notifCorner.Parent = notifFrame
+
+local notifStroke = Instance.new("UIStroke")
+notifStroke.Color = Color3.fromRGB(0, 200, 100)
+notifStroke.Thickness = 1.5
+notifStroke.Parent = notifFrame
+
+local notifText = Instance.new("TextLabel")
+notifText.Size = UDim2.new(1, -10, 1, 0)
+notifText.Position = UDim2.new(0, 5, 0, 0)
+notifText.BackgroundTransparency = 1
+notifText.Text = ""
+notifText.TextColor3 = Color3.fromRGB(255, 255, 255)
+notifText.Font = Enum.Font.GothamMedium
+notifText.TextSize = 12
+notifText.TextXAlignment = Enum.TextXAlignment.Center
+notifText.ZIndex = 21
+notifText.Parent = notifFrame
+
+local joinSound = Instance.new("Sound")
+joinSound.SoundId = "rbxassetid://4590657391"
+joinSound.Volume = 1
+joinSound.Parent = screenGui
+
+local function showJoinNotification(msg)
+    notifText.Text = msg
+    notifFrame.Position = UDim2.new(0.5, -120, 0, -60)
+    joinSound:Play()
+    
+    local tweenIn = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    TweenService:Create(notifFrame, tweenIn, {Position = UDim2.new(0.5, -120, 0, 20)}):Play()
+    
+    task.delay(3, function()
+        local tweenOut = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        TweenService:Create(notifFrame, tweenOut, {Position = UDim2.new(0.5, -120, 0, -60)}):Play()
+    end)
+end
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    if newPlayer ~= player then
+        showJoinNotification("👤 " .. newPlayer.Name .. " เข้าสู่เซิร์ฟเวอร์แล้ว!")
+    end
+end)
+
+---------------------------------------------------------
+-- 4. ระบบกดปุ่มต่างๆ (เปิดเมนู, รีเซ็ต, ย้ายเซิร์ฟ, รีจอย)
+---------------------------------------------------------
+launcherBtn.Activated:Connect(function()
+    isMenuOpen = not isMenuOpen
+    mainFrame.Visible = isMenuOpen
+    
+    if isMenuOpen then
+        mainStroke.Transparency = 0
+        launcherBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    else
+        mainStroke.Transparency = 1
+        launcherBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    end
+end)
+
+resetBtn.Activated:Connect(function()
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = 0
+            humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+        end
+        char:BreakJoints()
+    end
+end)
+
+hopBtn.Activated:Connect(function()
+    hopBtn.BackgroundColor3 = Color3.fromRGB(20, 80, 120)
+    showJoinNotification("🌐 กำลังค้นหาเซิร์ฟเวอร์อื่น...")
+    task.spawn(function()
+        local success, servers = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+        end)
+        if success and servers and servers.data then
+            for _, server in ipairs(servers.data) do
+                if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    showJoinNotification("🚀 กำลังย้ายไปเซิร์ฟเวอร์ใหม่...")
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
+                    return
+                end
+            end
+        end
+        showJoinNotification("⚠️ ไม่พบเซิร์ฟเวอร์ว่าง กำลังสุ่มเข้า...")
+        TeleportService:Teleport(game.PlaceId, player)
+    end)
+end)
+
+rejoinBtn.Activated:Connect(function()
+    rejoinBtn.BackgroundColor3 = Color3.fromRGB(120, 80, 10)
+    showJoinNotification("🔄 กำลังรีจอยเข้าเซิร์ฟเดิม...")
+    task.spawn(function()
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+        end)
+    end)
+end)
+
+---------------------------------------------------------
+-- 5. ระบบการลากและระบบล็อคตำแหน่ง UI
+---------------------------------------------------------
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+mainFrame.InputBegan:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+        if not isUIPinned then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and not isUIPinned then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X, 
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+pinBtn.Activated:Connect(function()
+    isUIPinned = not isUIPinned
+    dragging = false
+    
+    if isUIPinned then
+        pinBtn.Text = "📌"
+        pinBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+        statusLabel.Text = "UI: 📌 Locked"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+    else
+        pinBtn.Text = "🔓"
+        pinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        statusLabel.Text = "UI: 🔓 Movable"
+        statusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    end
+end)
+
+---------------------------------------------------------
+-- 6. ระบบตรวจจับกำแพง (Raycast) และล็อคหัว
+---------------------------------------------------------
+local function isVisible(targetPart)
+    if not player.Character then return false end
+    local origin = camera.CFrame.Position
+    local direction = (targetPart.Position - origin)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {player.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+    if raycastResult then
+        return raycastResult.Instance:IsDescendantOf(targetPart.Parent)
+    end
+    return true
+end
+
+local function getClosestPlayerHead()
+    local closestDist = 150
+    local closestHead = nil
+    
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local myRoot = player.Character.HumanoidRootPart
+
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local otherChar = otherPlayer.Character
+            local head = otherChar:FindFirstChild("Head")
+            local humanoid = otherChar:FindFirstChild("Humanoid")
+            
+            if head and humanoid and humanoid.Health > 0 then
+                local dist = (head.Position - myRoot.Position).Magnitude
+                if dist < closestDist and isVisible(head) then
+                    closestDist = dist
+                    closestHead = head
+                end
+            end
+        end
+    end
+    return closestHead
+end
+
+---------------------------------------------------------
+-- 7. ระบบมองทะลุ (ESP Highlight)
+---------------------------------------------------------
+local function updateESP()
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= player then
+            local char = otherPlayer.Character
+            if char and isWallhackOn then
+                local highlight = char:FindFirstChild("WallhackHighlight")
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "WallhackHighlight"
+                    highlight.Adornee = char
+                    highlight.Parent = char
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.FillColor = Color3.fromRGB(255, 50, 50)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.OutlineTransparency = 0
+                end
+            else
+                if char then
+                    local highlight = char:FindFirstChild("WallhackHighlight")
+                    if highlight then
+                        highlight:Destroy()
+                    end
+                end
+            end
+        end
+    end
+end
+
+---------------------------------------------------------
+-- 8. สวิตช์ปุ่มเปิด-ปิดระบบ (Animation ปุ่มสวิตช์)
+---------------------------------------------------------
+local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local colorOn = Color3.fromRGB(0, 200, 100)
+local colorOff = Color3.fromRGB(100, 100, 100)
+
+toggleBtn.Activated:Connect(function()
+    isLocked = not isLocked
+    if isLocked then
+        TweenService:Create(toggleBtn, tweenInfo, {BackgroundColor3 = colorOn}):Play()
+        TweenService:Create(toggleCircle, tweenInfo, {Position = UDim2.new(1, -18, 0.5, -8)}):Play()
+    else
+        TweenService:Create(toggleBtn, tweenInfo, {BackgroundColor3 = colorOff}):Play()
+        TweenService:Create(toggleCircle, tweenInfo, {Position = UDim2.new(0, 2, 0.5, -8)}):Play()
+        targetHead = nil
+    end
+end)
+
+espToggleBtn.Activated:Connect(function()
+    isWallhackOn = not isWallhackOn
+    if isWallhackOn then
+        TweenService:Create(espToggleBtn, tweenInfo, {BackgroundColor3 = colorOn}):Play()
+        TweenService:Create(espToggleCircle, tweenInfo, {Position = UDim2.new(1, -18, 0.5, -8)}):Play()
+    else
+        TweenService:Create(espToggleBtn, tweenInfo, {BackgroundColor3 = colorOff}):Play()
+        TweenService:Create(espToggleCircle, tweenInfo, {Position = UDim2.new(0, 2, 0.5, -8)}):Play()
+        updateESP()
+    end
+end)
+
+---------------------------------------------------------
+-- 9. ทำงานลูป Real-time
+---------------------------------------------------------
+local rainbowRotation = 0
+
+RunService.RenderStepped:Connect(function(dt)
+    if isMenuOpen then
+        rainbowRotation = (rainbowRotation + 60 * dt) % 360
+        rainbowGradient.Rotation = rainbowRotation
+    end
+
+    if isLocked then
+        if not targetHead or not targetHead.Parent or targetHead.Parent:FindFirstChild("Humanoid").Health <= 0 or not isVisible(targetHead) then
+            targetHead = getClosestPlayerHead()
+        end
+
+        if targetHead then
+            local camPos = camera.CFrame.Position
+            camera.CFrame = CFrame.new(camPos, targetHead.Position)
+        end
+    end
+
+    if isWallhackOn then
+        updateESP()
+    end
+end)
